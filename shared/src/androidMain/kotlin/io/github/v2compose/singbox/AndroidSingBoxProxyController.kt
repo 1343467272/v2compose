@@ -29,7 +29,7 @@ import kotlinx.coroutines.sync.withLock
 private const val TAG = "SingBoxProxy"
 
 /** 连续多少次「启动后进程消失」就不再自动启动核心 */
-private const val MAX_START_ATTEMPTS = 2
+private const val MAX_START_ATTEMPTS = 1
 
 /** 本地 mixed 入站的起始端口，实际端口由 libbox 挑选可用的一个。 */
 private const val FIRST_LOCAL_PORT = 20800
@@ -57,6 +57,11 @@ class AndroidSingBoxProxyController(
         private set
 
     private val platformInterface = SingBoxPlatformInterface(context)
+
+    init {
+        SingBoxStepLogger.init(context)
+        SingBoxStepLogger.step("controller created (sdk=" + Build.VERSION.SDK_INT + ")")
+    }
 
     /** 最近一次请求的配置；null 表示应当停止核心。跨线程读写。 */
     @Volatile
@@ -149,12 +154,14 @@ class AndroidSingBoxProxyController(
 
     private suspend fun startLocked(config: String) {
         stopLocked()
+        SingBoxStepLogger.reset()
+        SingBoxStepLogger.step("start requested, configChars=" + config.length)
 
         // 上次启动如果直接把进程带崩了，这个计数不会被清零；达到上限就不再自动启动，
         // 避免「一打开就闪退」的死循环，用户可在设置页重新确认以重置。
         val attempts = appPreferences.singBoxStartAttempts.first()
         if (attempts >= MAX_START_ATTEMPTS) {
-            Log.w(TAG, "sing-box start skipped after " + attempts + " unconfirmed starts")
+            SingBoxStepLogger.step("SKIPPED: unconfirmed start attempts=" + attempts)
             _state.value = SingBoxState.StartFailed(null)
             return
         }
@@ -162,25 +169,46 @@ class AndroidSingBoxProxyController(
 
         _state.value = SingBoxState.Starting
         try {
+            SingBoxStepLogger.step("libbox setup ...")
             ensureSetup()
+            SingBoxStepLogger.step("libbox setup ok, version=" + runCatching { Libbox.version() }.getOrNull())
             val port = Libbox.availablePort(FIRST_LOCAL_PORT)
+            SingBoxStepLogger.step("availablePort=" + port)
             val built = SingBoxConfig.buildLocalMixedConfig(config, port)
             if (built is SingBoxConfig.Result.Failure) {
                 _state.value = SingBoxState.InvalidConfig(built.error)
                 return
             }
             val content = (built as SingBoxConfig.Result.Success).content
+            SingBoxStepLogger.step("config rewritten, outbounds=" + built.outboundCount)
+
+            // 先用 libbox 校验配置：能返回的错误在这里就暴露出来，避免带着坏配置启动核心
+            SingBoxStepLogger.step("check config ...")
+            try {
+                Libbox.checkConfig(content)
+            } catch (t: Throwable) {
+                SingBoxStepLogger.step("config check failed: " + t.message)
+                _state.value = SingBoxState.StartFailed(t.message)
+                runCatching { appPreferences.singBoxStartAttempts(0) }
+                return
+            }
+            SingBoxStepLogger.step("config check ok")
+
             val server = CommandServer(handler, platformInterface)
+            SingBoxStepLogger.step("command server created")
             server.start()
+            SingBoxStepLogger.step("command server started")
             server.startOrReloadService(content, OverrideOptions())
+            SingBoxStepLogger.step("service started")
             commandServer = server
             runningConfig = config
             localPort = port
             // 启动成功：进程没有崩溃，清掉保护计数
             appPreferences.singBoxStartAttempts(0)
             _state.value = SingBoxState.Running(port)
-            Log.d(TAG, "sing-box started, local mixed inbound on 127.0.0.1:$port")
+            SingBoxStepLogger.step("running on 127.0.0.1:" + port)
         } catch (t: Throwable) {
+            SingBoxStepLogger.step("FAILED: " + t)
             Log.e(TAG, "failed to start sing-box core", t)
             runCatching { commandServer?.closeService() }
             runCatching { commandServer?.close() }
@@ -194,6 +222,9 @@ class AndroidSingBoxProxyController(
     }
 
     private fun stopLocked() {
+        if (commandServer != null) {
+            SingBoxStepLogger.step("stopping core")
+        }
         val server = commandServer
         commandServer = null
         runningConfig = null

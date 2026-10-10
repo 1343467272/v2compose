@@ -93,6 +93,7 @@ class SingBoxNetworkMonitor(context: Context) {
 
     private fun update(network: Network) {
         val current = listener ?: return
+        SingBoxStepLogger.step("platform: notify default interface")
         val linkProperties = runCatching { connectivity.getLinkProperties(network) }.getOrNull()
             ?: return
         val name = linkProperties.interfaceName ?: return
@@ -133,6 +134,7 @@ class SingBoxLocalResolver : LocalDNSTransport {
 
     override fun lookup(ctx: ExchangeContext, network: String, domain: String) {
         try {
+            SingBoxStepLogger.step("platform: dns lookup " + domain)
             val addresses = InetAddress.getAllByName(domain).toList()
             val filtered = when {
                 network.endsWith("4") -> addresses.filterIsInstance<Inet4Address>()

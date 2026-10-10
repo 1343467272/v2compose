@@ -37,11 +37,15 @@ class SingBoxPlatformInterface(private val context: Context) : PlatformInterface
     private val networkMonitor = SingBoxNetworkMonitor(context)
     private val localResolver = SingBoxLocalResolver()
 
+    @Volatile
+    private var interfacesLogged = false
+
     // region 网络与 DNS
 
     override fun localDNSTransport(): LocalDNSTransport? = localResolver
 
     override fun startDefaultInterfaceMonitor(listener: InterfaceUpdateListener) {
+        SingBoxStepLogger.step("platform: startDefaultInterfaceMonitor")
         networkMonitor.start(listener)
     }
 
@@ -50,6 +54,10 @@ class SingBoxPlatformInterface(private val context: Context) : PlatformInterface
     }
 
     override fun getInterfaces(): NetworkInterfaceIterator {
+        if (!interfacesLogged) {
+            interfacesLogged = true
+            SingBoxStepLogger.step("platform: getInterfaces() called")
+        }
         return runCatching { collectInterfaces() }.getOrElse { throwable ->
             Log.w(TAG, "collect network interfaces failed", throwable)
             SingBoxInterfaceArray(emptyList())
@@ -130,6 +138,7 @@ class SingBoxPlatformInterface(private val context: Context) : PlatformInterface
     override fun autoDetectInterfaceControl(fd: Int) = Unit
 
     override fun openTun(options: TunOptions): Int {
+        SingBoxStepLogger.step("platform: openTun() called (unexpected)")
         throw UnsupportedOperationException(
             "V2compose 内嵌 sing-box 仅支持本地 mixed 入站，请勿在配置中使用 tun 入站"
         )
