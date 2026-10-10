@@ -72,7 +72,7 @@ actual val platformModule: Module = module {
             .build()
     }
     single<AutoCheckInScheduler> { AndroidAutoCheckInScheduler(get()) }
-    single<SingBoxProxyController> { AndroidSingBoxProxyController(get()) }
+    single<SingBoxProxyController> { AndroidSingBoxProxyController(get(), get()) }
     single<WebViewProxyController> { AndroidWebViewProxyController(get(), get()) }
 
     // Network

@@ -151,3 +151,20 @@ ANDROID_NDK_HOME=/path/to/ndk \
 纯 Kotlin 解析逻辑的 26 个单元测试（SingBoxConfig / SingBoxShareLink / SingBoxSubscription /
 ProxyInfo 序列化兼容）在 JVM 沙箱工程中执行通过（本仓库的 shared 模块在当前环境没有可运行的
 Android 单元测试任务，iosSimulatorArm64Test 无法在 Linux 上执行）。
+## 10. 已知问题与修复记录
+
+### 10.1 导入订阅后打开 App 闪退（已修复）
+
+- 现象：导入订阅（即启用内嵌核心）后，App 启动即崩溃，且每次打开都闪退。
+- 原因：`SetupOptions.fixAndroidStack` 被错误地设置为「仅 Android O 以下开启」。libbox 的
+  `platformDefaultInterfaceMonitor.UpdateDefaultInterface` 在该开关关闭时会**直接在 Java 回调线程上执行 Go 代码**；
+  该线程栈由 Java（ConnectivityManager）创建、不受 Go runtime 管理，在 Android 上会导致进程崩溃
+  （golang/go#68760）。官方 Android 客户端的取值是 `SDK 24–25 或 SDK >= 28` 时为 true。
+- 修复：
+  1. `fixAndroidStack` 与官方实现保持一致（`SDK_INT <= 25 || SDK_INT >= 28`）；
+  2. `SingBoxNetworkMonitor` 把网络回调统一切到独立线程后再回调 libbox，避免在 ConnectivityManager 线程直接进 Go；
+  3. `PlatformInterface.getInterfaces()`、`LocalDNSTransport` 等回调不再向 Go 抛异常（跨 JNI 抛异常可能升级为 Go panic），
+     失败时返回空列表 / DNS 错误码；
+  4. 补充 R8 keep 规则：`-keep class io.github.v2compose.singbox.** { *; }`。
+- 兜底保护：新增崩溃计数（`AppPreferences.singbox_start_attempts`）。核心启动前 +1，启动成功或捕获到异常后清零；
+  连续两次「未确认启动」说明进程被核心带崩，此时不再自动启动核心，App 可正常打开，用户在设置页重新确认即可重置计数。

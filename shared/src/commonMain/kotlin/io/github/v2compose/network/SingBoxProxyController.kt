@@ -46,6 +46,15 @@ interface SingBoxProxyController {
     /** 根据代理设置启动或停止核心。重复调用相同配置应当是幂等的。 */
     fun apply(proxyInfo: ProxyInfo)
 
+    /**
+     * 用户在设置页主动确认配置或导入订阅时调用。
+     *
+     * 与 [apply] 的区别：会重置「核心导致进程崩溃」的保护计数并立即尝试启动。
+     */
+    fun applyUserInitiated(proxyInfo: ProxyInfo) {
+        apply(proxyInfo)
+    }
+
     /** 停止并释放核心。 */
     fun stop()
 }

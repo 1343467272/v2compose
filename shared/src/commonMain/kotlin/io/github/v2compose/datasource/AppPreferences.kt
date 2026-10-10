@@ -4,6 +4,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import io.github.v2compose.shared.bean.AppSettings
 import io.github.v2compose.shared.bean.DarkMode
@@ -30,6 +31,9 @@ class AppPreferences(
         private val KeyReplyWithFloor = booleanPreferencesKey("reply_with_floor")
 
         private val KeyProxyInfo = stringPreferencesKey("proxy_info")
+
+        /** sing-box 核心连续启动次数，用于在核心导致进程崩溃后自动停止重试 */
+        private val KeySingBoxStartAttempts = intPreferencesKey("singbox_start_attempts")
     }
 
     val appSettings: Flow<AppSettings> = dataStore.data.map {
@@ -108,6 +112,20 @@ class AppPreferences(
     suspend fun proxyInfo(proxy: ProxyInfo) {
         dataStore.edit {
             it[KeyProxyInfo] = proxy.toJson()
+        }
+    }
+
+    /**
+     * sing-box 核心的「未确认启动」次数：启动前 +1，启动成功或捕获到异常后清零。
+     * 只有进程被核心带崩时该值才会残留，下次启动据此跳过自动启动，避免反复闪退。
+     */
+    val singBoxStartAttempts: Flow<Int> = dataStore.data.map {
+        it[KeySingBoxStartAttempts] ?: 0
+    }
+
+    suspend fun singBoxStartAttempts(value: Int) {
+        dataStore.edit {
+            it[KeySingBoxStartAttempts] = value
         }
     }
 }

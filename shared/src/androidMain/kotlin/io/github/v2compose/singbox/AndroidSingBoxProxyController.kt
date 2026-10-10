@@ -3,6 +3,7 @@ package io.github.v2compose.singbox
 import android.content.Context
 import android.os.Build
 import android.util.Log
+import io.github.v2compose.datasource.AppPreferences
 import io.github.v2compose.network.SingBoxProxyController
 import io.github.v2compose.network.SingBoxState
 import io.github.v2compose.shared.bean.ProxyInfo
@@ -20,11 +21,15 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 private const val TAG = "SingBoxProxy"
+
+/** 连续多少次「启动后进程消失」就不再自动启动核心 */
+private const val MAX_START_ATTEMPTS = 2
 
 /** 本地 mixed 入站的起始端口，实际端口由 libbox 挑选可用的一个。 */
 private const val FIRST_LOCAL_PORT = 20800
@@ -38,6 +43,7 @@ private const val FIRST_LOCAL_PORT = 20800
  */
 class AndroidSingBoxProxyController(
     private val context: Context,
+    private val appPreferences: AppPreferences,
 ) : SingBoxProxyController {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -96,6 +102,14 @@ class AndroidSingBoxProxyController(
     }
 
     override fun apply(proxyInfo: ProxyInfo) {
+        request(proxyInfo, userInitiated = false)
+    }
+
+    override fun applyUserInitiated(proxyInfo: ProxyInfo) {
+        request(proxyInfo, userInitiated = true)
+    }
+
+    private fun request(proxyInfo: ProxyInfo, userInitiated: Boolean) {
         val config = if (proxyInfo.type == ProxyType.SingBox) {
             proxyInfo.singboxConfig
         } else {
@@ -104,6 +118,10 @@ class AndroidSingBoxProxyController(
         requestedConfig = config
         scope.launch {
             mutex.withLock {
+                if (userInitiated) {
+                    // 用户主动操作：清掉崩溃保护计数，允许重新尝试
+                    appPreferences.singBoxStartAttempts(0)
+                }
                 val requested = requestedConfig
                 when {
                     requested == null -> stopLocked()
@@ -129,8 +147,19 @@ class AndroidSingBoxProxyController(
         }
     }
 
-    private fun startLocked(config: String) {
+    private suspend fun startLocked(config: String) {
         stopLocked()
+
+        // 上次启动如果直接把进程带崩了，这个计数不会被清零；达到上限就不再自动启动，
+        // 避免「一打开就闪退」的死循环，用户可在设置页重新确认以重置。
+        val attempts = appPreferences.singBoxStartAttempts.first()
+        if (attempts >= MAX_START_ATTEMPTS) {
+            Log.w(TAG, "sing-box start skipped after " + attempts + " unconfirmed starts")
+            _state.value = SingBoxState.StartFailed(null)
+            return
+        }
+        appPreferences.singBoxStartAttempts(attempts + 1)
+
         _state.value = SingBoxState.Starting
         try {
             ensureSetup()
@@ -147,6 +176,8 @@ class AndroidSingBoxProxyController(
             commandServer = server
             runningConfig = config
             localPort = port
+            // 启动成功：进程没有崩溃，清掉保护计数
+            appPreferences.singBoxStartAttempts(0)
             _state.value = SingBoxState.Running(port)
             Log.d(TAG, "sing-box started, local mixed inbound on 127.0.0.1:$port")
         } catch (t: Throwable) {
@@ -156,6 +187,8 @@ class AndroidSingBoxProxyController(
             commandServer = null
             runningConfig = null
             localPort = null
+            // 异常被捕获说明进程还活着，同样不算「崩溃」，计数清零
+            runCatching { appPreferences.singBoxStartAttempts(0) }
             _state.value = SingBoxState.StartFailed(t.message)
         }
     }
@@ -182,7 +215,10 @@ class AndroidSingBoxProxyController(
             basePath = baseDir.absolutePath
             workingPath = workingDir.absolutePath
             tempPath = context.cacheDir.absolutePath
-            fixAndroidStack = Build.VERSION.SDK_INT < Build.VERSION_CODES.O
+            // 与 sing-box 官方 Android 客户端保持一致：Android 上 Java 线程回调进 Go 存在
+            // 线程栈问题（golang/go#68760），现代版本都需要开启该兼容开关。
+            fixAndroidStack = Build.VERSION.SDK_INT <= Build.VERSION_CODES.N_MR1 ||
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.P
             logMaxLines = 2000
             debug = false
             crashReportSource = "V2compose"

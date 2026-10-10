@@ -118,7 +118,7 @@ class SettingsViewModel(
         viewModelScope.launch {
             appPreferences.proxyInfo(proxy)
             proxyManager.updateProxy(proxy)
-            singBoxProxyController.apply(proxy)
+            singBoxProxyController.applyUserInitiated(proxy)
         }
     }
 
@@ -132,7 +132,7 @@ class SettingsViewModel(
                         SingBoxImportState.Success(result.nodeCount)
                     val proxy = appPreferences.proxyInfo.first()
                     proxyManager.updateProxy(proxy)
-                    singBoxProxyController.apply(proxy)
+                    singBoxProxyController.applyUserInitiated(proxy)
                 }
 
                 is RefreshSingBoxSubscriptionUseCase.Result.Failed -> {

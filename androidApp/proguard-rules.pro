@@ -20,6 +20,9 @@
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
 
+## 内嵌 sing-box（libbox）通过 gobind/JNI 回调 Kotlin 实现，保留桥接类与方法名
+-keep class io.github.v2compose.singbox.** { *; }
+
 ## Serialization Beans
 -keep class io.github.v2compose.bean.** { *; }
 -keep class io.github.v2compose.network.bean.** { *; }

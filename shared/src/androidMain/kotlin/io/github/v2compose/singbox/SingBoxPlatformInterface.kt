@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.system.OsConstants
+import android.util.Log
 import io.nekohasekai.libbox.BridgeOptions
 import io.nekohasekai.libbox.BridgeSession
 import io.nekohasekai.libbox.ConnectionOwner
@@ -48,8 +49,16 @@ class SingBoxPlatformInterface(private val context: Context) : PlatformInterface
         networkMonitor.stop()
     }
 
-    @Suppress("DEPRECATION")
     override fun getInterfaces(): NetworkInterfaceIterator {
+        return runCatching { collectInterfaces() }.getOrElse { throwable ->
+            Log.w(TAG, "collect network interfaces failed", throwable)
+            SingBoxInterfaceArray(emptyList())
+        }
+    }
+
+    /** 任何异常都不允许跨 JNI 抛回 Go，返回空列表即可。 */
+    @Suppress("DEPRECATION")
+    private fun collectInterfaces(): NetworkInterfaceIterator {
         val connectivity = context.applicationContext
             .getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         val result = mutableListOf<LibboxNetworkInterface>()
@@ -202,5 +211,6 @@ class SingBoxPlatformInterface(private val context: Context) : PlatformInterface
 
     private companion object {
         const val DEFAULT_MTU = 1500
+        const val TAG = "SingBoxPlatform"
     }
 }
