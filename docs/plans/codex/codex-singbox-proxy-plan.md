@@ -168,3 +168,25 @@ Android 单元测试任务，iosSimulatorArm64Test 无法在 Linux 上执行）�
   4. 补充 R8 keep 规则：`-keep class io.github.v2compose.singbox.** { *; }`。
 - 兜底保护：新增崩溃计数（`AppPreferences.singbox_start_attempts`）。核心启动前 +1，启动成功或捕获到异常后清零；
   连续两次「未确认启动」说明进程被核心带崩，此时不再自动启动核心，App 可正常打开，用户在设置页重新确认即可重置计数。
+### 10.2 打开 App 闪退（真机根因：IPv6 zone 导致 libbox panic）——已修复
+
+真机崩溃报告（libbox 自己写的 `CrashReport-V2compose.log`）：
+
+```
+panic: netip.ParsePrefix("fe80::c43d:a0ff:feb6:26e2%rmnet_data4/64"): IPv6 zones cannot be present in a prefix
+  net/netip.MustParsePrefix
+  libbox.(*platformInterfaceWrapper).NetworkInterfaces        service.go:142
+  route.(*NetworkManager).UpdateInterfaces                    network.go:270
+  libbox.(*platformDefaultInterfaceMonitor).updateDefaultInterface  monitor.go:136
+  ← 由 App 的 InterfaceUpdateListener 回调（Java → Go）触发
+```
+
+- 原因：`SingBoxPlatformInterface.getInterfaces()` 用 `InetAddress.hostAddress` 拼「地址/前缀长度」，
+  IPv6 链路本地地址会带 scope id（`%rmnet_data4`）。sing-box 用 `netip.MustParsePrefix` 解析该字符串，
+  **带 zone 直接 panic**；Go panic 无法被 Java 捕获 → 进程立即退出（表现为闪退）。
+- 修复：地址/ DNS / 网关字符串一律去掉 `%zone`（`substringBefore('%')`），见 `SingBoxPlatformInterface.toPrefix()`。
+  sing-box 官方 Android 客户端同样如此（通过 `Inet6Address.getByAddress` 重建不带 zone 的地址）。
+- 真机验证（OnePlus PHK110 / Android 15 / arm64-v8a）：核心启动成功 `running on 127.0.0.1:20800`；
+  `/proc/net/tcp` 显示 20800 处于监听且有 App 自身连接；冷启动不再崩溃；设置页显示「sing-box 127.0.0.1:20800 · 运行中」。
+- 说明：此前两轮改动（`fixAndroidStack`、回调切独立线程、崩溃保护计数）仍然保留——它们解决的是其它真实风险
+  （Java 线程进 Go 的栈问题、崩溃后 App 无法打开），但都不是本次 panic 的根因。

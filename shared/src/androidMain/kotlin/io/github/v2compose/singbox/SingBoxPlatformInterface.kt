@@ -96,12 +96,12 @@ class SingBoxPlatformInterface(private val context: Context) : PlatformInterface
                 else -> Libbox.InterfaceTypeOther
             }
             item.dnsServer = SingBoxStringArray(
-                linkProperties.dnsServers.mapNotNull { it.hostAddress }
+                linkProperties.dnsServers.mapNotNull { it.hostAddress?.substringBefore('%') }
             )
             item.gateway = SingBoxStringArray(
                 linkProperties.routes
                     .filter { it.destination.prefixLength == 0 }
-                    .mapNotNull { it.gateway?.hostAddress }
+                    .mapNotNull { it.gateway?.hostAddress?.substringBefore('%') }
             )
             item.addresses = SingBoxStringArray(
                 javaInterface.interfaceAddresses.mapNotNull { it.toPrefix() }
@@ -213,8 +213,16 @@ class SingBoxPlatformInterface(private val context: Context) : PlatformInterface
 
     // endregion
 
+    /**
+     * 生成 libbox 需要的 "地址/前缀长度"。
+     *
+     * 注意：IPv6 的 hostAddress 会带 scope id（例如 fe80::c43d:a0ff:feb6:26e2%rmnet_data4），
+     * 而 sing-box 内部用 netip.MustParsePrefix 解析该字符串，**带 zone 会 panic 直接杀掉进程**
+     * （真机崩溃栈：libbox.(*platformInterfaceWrapper).NetworkInterfaces → service.go:142）。
+     * 因此这里必须去掉 zone。
+     */
     private fun InterfaceAddress.toPrefix(): String? {
-        val hostAddress = address.hostAddress ?: return null
+        val hostAddress = address.hostAddress?.substringBefore('%') ?: return null
         return hostAddress + "/" + networkPrefixLength
     }
 
