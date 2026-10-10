@@ -24,25 +24,45 @@ Fruit cannot handle class io.github.v2compose.network.bean.V2exResult
   而动作接口声明的返回类型 `V2exResult` 是 `@Serializable` 数据类、没有 `@Slice` 适配器，
   于是 `Fruit.getSliceAdapter` 抛出 `IllegalArgumentException`，最终以原始异常文案出现在 Snackbar 中。
 
+## 关键约束：重定向策略必须按客户端区分
+
+`V2Client.kt` 里的 `createConfiguredHttpClient` 同时服务 V2 客户端与图片客户端，因此不能全局关闭跟随：
+
+| 客户端 | 引擎 | 期望行为 |
+| --- | --- | --- |
+| V2 (`createV2HttpClient`) | Android: `CommonOkHttpClient`（OkHttp `followRedirects(false)`）；iOS: `Darwin` | **不跟随**，3xx 抛给 `isRedirect` |
+| 图片 (`createImageHttpClient`) | Android: `ImageOkHttpClient`（OkHttp `followRedirects(true)`）；iOS: `Darwin` | **跟随**（CDN http->https、imgur 页面跳转；`ExternalImageUrlResolver` 依赖最终 URL） |
+
+Ktor 的 Darwin 引擎在 `URLSession:task:willPerformHTTPRedirection:` 中直接 `completionHandler(null)`，
+即**引擎层不跟随、完全由 `HttpRedirect` 插件决定**。因此若在公共工厂里统一关闭跟随，
+Android 图片因 OkHttp 自行跟随而"看起来正常"，iOS 图片则会被静默破坏——必须按客户端显式指定。
+
 ## 修改
 
 - `shared/src/commonMain/kotlin/io/github/v2compose/network/V2Client.kt`
-  - 在 `createConfiguredHttpClient` 中显式设置 `followRedirects = false`，
-    让 V2EX 的 3xx 直接以 `ResponseException` 抛出，交由既有 `isRedirect` 逻辑处理。
+  - `createConfiguredHttpClient` 新增 `followRedirects: Boolean` 参数并按客户端传入：
+    V2 客户端 `false`，图片客户端 `true`。
+- `shared/src/androidMain/kotlin/io/github/v2compose/network/PlatformEngine.android.kt`
+  - 兜底引擎 `OkHttp.create()` 关闭引擎级跟随，保证"不传 engine"的路径同样由 `HttpRedirect` 插件统管。
 - `shared/src/androidMain/kotlin/io/github/v2compose/core/Platform.kt`
   - `deviceModel()` 兼容 `Build.MODEL` 为 null 的宿主环境（纯 JVM 单测），避免 `NetConstants` 初始化失败。
 - `androidApp/build.gradle.kts`
   - 新增 `testImplementation(libs.ktor.client.okhttp)` 与 `testOptions.unitTests.isReturnDefaultValues = true`，
     使共享网络客户端可以在 Android host 单测中运行。
 - `androidApp/src/test/java/io/github/v2compose/network/V2exActionRedirectTest.kt`
-  - 新增回归测试：本地 `HttpServer` 模拟 `/thank/reply/1 -> 302 /t/1` 与目标 HTML 页面，
-    断言客户端不会跟随重定向、只发出一次请求，并抛出 `3xx` 的 `ResponseException`。
-    修复前该用例收到的正是 `Fruit cannot handle class ...V2exResult ... No factory found.`。
+  - 本地 `HttpServer` 模拟 `/thank/reply/1 -> 302 /t/1`、`/img/1 -> 302 /img/final`；
+    引擎层设为不跟随以单独验证 Ktor 客户端策略：
+    V2 客户端只请求一次并抛 `3xx` `ResponseException`；图片客户端跟随到 `/img/final` 并返回 200。
+
+## 影响面
+
+- `v2HttpClient()` 全仓库仅 `V2exApi` 使用，因此关闭跟随只影响 V2EX 接口，正是期望的语义。
+- `githubHttpClient()`（GitHub API / sing-box 订阅）与图片客户端行为保持不变。
 
 ## 验证
 
 - 修复前：`./gradlew :androidApp:testFossDebugUnitTest --tests "*V2exActionRedirectTest"` 失败，
   异常与截图一致。
-- 修复后：同一用例通过。
+- 修复后：V2 与图片两个用例均通过（`tests=2 failures=0`）。
 - `./gradlew :androidApp:testFossDebugUnitTest :androidApp:assembleFossRelease` 通过并产出已签名 Release APK。
-- `adb install -r` 覆盖安装到已登录设备验证。
+- `adb install -r` 覆盖安装到已登录设备，启动无崩溃。

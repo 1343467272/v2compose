@@ -7,7 +7,14 @@ import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.engine.okhttp.OkHttp
 import okhttp3.OkHttpClient
 
-actual fun createHttpClientEngine(): HttpClientEngine = OkHttp.create()
+// 由 Ktor 的 HttpRedirect 插件统管是否跟随重定向（与各客户端的 followRedirects 策略一致），
+// 避免引擎层自行跟随导致业务 302 无法暴露给上层 isRedirect 逻辑。
+actual fun createHttpClientEngine(): HttpClientEngine = OkHttp.create {
+    config {
+        followRedirects(false)
+        followSslRedirects(false)
+    }
+}
 
 fun createAndroidV2HttpClient(
     okHttpClient: OkHttpClient,
