@@ -78,6 +78,9 @@ Android 版本内置了 sing-box 核心（libbox），可以在不安装其它�
 ANDROID_HOME=/path/to/android-sdk ANDROID_NDK_HOME=/path/to/ndk ./scripts/build-libbox.sh
 ```
 
+默认只编译 arm64-v8a（现代 Android 设备）；如需其它 ABI，可通过
+`SING_BOX_PLATFORM="android/arm64,android/arm"` 指定。
+
 详见 [docs/plans/codex/codex-singbox-proxy-plan.md](docs/plans/codex/codex-singbox-proxy-plan.md)。
 
 ## 构建须知

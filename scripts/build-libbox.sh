@@ -15,6 +15,9 @@ set -euo pipefail
 
 SING_BOX_VERSION="${SING_BOX_VERSION:-v1.14.3}"
 GOMOBILE_VERSION="${GOMOBILE_VERSION:-v0.1.13}"
+# 目标 ABI，默认只编 arm64-v8a（现代 Android 设备）。
+# 注意：Go 1.26 下编 386 / amd64 会触发编译器 ICE，因此不建议直接用 android（全 ABI）。
+SING_BOX_PLATFORM="${SING_BOX_PLATFORM:-android/arm64}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -42,8 +45,9 @@ go install -v "github.com/sagernet/gomobile/cmd/gobind@${GOMOBILE_VERSION}"
 export PATH="$(go env GOPATH)/bin:${PATH}"
 
 cd "${BUILD_DIR}/sing-box"
-# -target android 会为所有 ABI（arm/arm64/amd64/386）生成并输出 libbox.aar 与 libbox-legacy.aar
-go run ./cmd/internal/build_libbox -target android
+# -platform 指定 ABI；产物为 libbox.aar 与 libbox-legacy.aar
+echo "==> 构建 ABI: ${SING_BOX_PLATFORM}"
+go run ./cmd/internal/build_libbox -target android -platform "${SING_BOX_PLATFORM}"
 
 mkdir -p "$(dirname "${OUTPUT}")"
 cp libbox.aar "${OUTPUT}"
