@@ -95,6 +95,12 @@ private fun createConfiguredHttpClient(
 ): HttpClient = HttpClient(engine ?: createHttpClientEngine()) {
     expectSuccess = true
 
+    // V2EX 的业务动作（感谢/收藏/忽略/关注等）以及登录/签到成功时都靠 302 表达结果。
+    // 这里必须关闭自动跟随，让 3xx 以 ResponseException 的形式抛给上层 isRedirect 逻辑；
+    // 否则请求会被跟随到目标 HTML 页面，ContentNegotiation 再去用 Fruit 解析 V2exResult 时
+    // 就会抛出 "Fruit cannot handle class ...V2exResult. No factory found."。
+    followRedirects = false
+
     installContentNegotiation?.invoke(this)
 
     defaultRequest {

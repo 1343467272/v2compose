@@ -108,6 +108,12 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+    testOptions {
+        unitTests {
+            // shared 的 NetConstants 会读取 android.os.Build.MODEL，纯 JVM 单测中需要返回默认值
+            isReturnDefaultValues = true
+        }
+    }
     flavorDimensions += "tracking"
     productFlavors {
         create("foss") {
@@ -151,6 +157,7 @@ dependencies {
 
     // test
     testImplementation(libs.junit)
+    testImplementation(libs.ktor.client.okhttp)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))

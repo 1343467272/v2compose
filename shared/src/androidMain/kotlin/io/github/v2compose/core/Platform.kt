@@ -5,4 +5,4 @@ import android.os.Build
 
 actual fun httpAgent(): String? = System.getProperty("http.agent")
 
-actual fun deviceModel(): String = Build.MODEL
+actual fun deviceModel(): String = Build.MODEL ?: "Android"
