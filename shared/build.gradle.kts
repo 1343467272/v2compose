@@ -10,6 +10,21 @@ plugins {
 
 val appVersionName = providers.gradleProperty("app.versionName").get()
 
+// 内嵌 sing-box 核心（libbox）产物，不纳入版本控制，执行 scripts/build-libbox.sh 生成
+val libboxAar = layout.projectDirectory.file("libs/libbox.aar")
+
+tasks.matching {
+    it.name.startsWith("compile") && it.name.contains("Android")
+}.configureEach {
+    doFirst {
+        if (!libboxAar.asFile.exists()) {
+            throw GradleException(
+                "缺少 sing-box 核心库 shared/libs/libbox.aar，请先执行 ./scripts/build-libbox.sh 生成"
+            )
+        }
+    }
+}
+
 buildkonfig {
     packageName = "io.github.v2compose"
     defaultConfigs {
@@ -114,6 +129,9 @@ kotlin {
             implementation(libs.androidx.work.runtime.ktx)
             implementation(libs.koin.androidx.workmanager)
             implementation(libs.okhttp.logging)
+
+            // 内嵌 sing-box 核心（libbox.aar），由 scripts/build-libbox.sh 生成
+            implementation(files(libboxAar))
         }
 
         iosMain.dependencies {

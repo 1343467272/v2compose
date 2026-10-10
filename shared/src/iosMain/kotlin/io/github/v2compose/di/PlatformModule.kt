@@ -18,7 +18,9 @@ import io.github.v2compose.network.IosHttpCacheManager
 import io.github.v2compose.network.IosCookieManager
 import io.github.v2compose.network.IosNetworkClientRegistry
 import io.github.v2compose.network.NetworkClientProvider
+import io.github.v2compose.network.NoOpSingBoxProxyController
 import io.github.v2compose.network.ProxyManager
+import io.github.v2compose.network.SingBoxProxyController
 import io.github.v2compose.ui.main.AutoCheckInScheduler
 import io.github.v2compose.ui.main.IosAutoCheckInScheduler
 import io.github.v2compose.ui.main.IosWebViewProxyController
@@ -71,6 +73,7 @@ actual val platformModule: Module = module {
 
     single<AutoCheckInScheduler> { IosAutoCheckInScheduler() }
     single<WebViewProxyController> { IosWebViewProxyController() }
+    single<SingBoxProxyController> { NoOpSingBoxProxyController() }
     single<Fruit> {
         Fruit().apply {
             registerGeneratedSliceAdapters()

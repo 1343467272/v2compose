@@ -11,3 +11,6 @@
 local.properties
 /.kotlin/
 /.claude/settings.local.json
+
+# 内嵌 sing-box 核心产物（体积大，执行 scripts/build-libbox.sh 生成）
+/shared/libs/*.aar

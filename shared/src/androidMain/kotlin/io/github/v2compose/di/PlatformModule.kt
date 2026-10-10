@@ -19,6 +19,7 @@ import io.github.v2compose.network.NetworkClientProvider
 import io.github.v2compose.network.OkHttpFactory
 import io.github.v2compose.network.OkHttpCacheManager
 import io.github.v2compose.network.ProxyManager
+import io.github.v2compose.network.SingBoxProxyController
 import io.github.v2compose.network.WebkitCookieManager
 import io.github.v2compose.network.createAndroidImageHttpClient
 import io.github.v2compose.network.AndroidNetworkClientProvider
@@ -26,6 +27,7 @@ import io.github.v2compose.network.createAndroidGithubHttpClient
 import io.github.v2compose.network.createAndroidV2HttpClient
 import io.github.v2compose.network.di.V2ProxySelector
 import io.github.v2compose.shared.core.V2EventManager
+import io.github.v2compose.singbox.AndroidSingBoxProxyController
 import io.github.v2compose.ui.main.AndroidAutoCheckInScheduler
 import io.github.v2compose.ui.main.AndroidWebViewProxyController
 import io.github.v2compose.ui.main.AutoCheckInScheduler
@@ -70,7 +72,8 @@ actual val platformModule: Module = module {
             .build()
     }
     single<AutoCheckInScheduler> { AndroidAutoCheckInScheduler(get()) }
-    single<WebViewProxyController> { AndroidWebViewProxyController(get()) }
+    single<SingBoxProxyController> { AndroidSingBoxProxyController(get()) }
+    single<WebViewProxyController> { AndroidWebViewProxyController(get(), get()) }
 
     // Network
     single<io.github.fruit.Fruit> { OkHttpFactory.createFruit() }

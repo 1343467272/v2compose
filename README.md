@@ -41,6 +41,7 @@
 - [x] 自动签到；
 - [x] 动态主题；
 - [x] 代理服务器；
+- [x] 内嵌 sing-box 核心（Android，本地 mixed 入站）；
 - [x] 高亮OP的回帖；
 - [x] 可点击回复中的楼层；
 - [x] 主页底部Tab，单击：回到顶部，双击：回到顶部并刷新；
@@ -50,6 +51,34 @@
 V2compose 集成了 Firebase 的 Crashlytics 和 Analytics
 功能，仅用于崩溃诊断、稳定性改进与基础使用统计，不用于广告跟踪。
 登录、发帖、回帖、签到、搜索等功能会按用户操作与 V2EX 或搜索服务通信；相关隐私说明请参考 `docs/privacy-policy.md`。
+
+## 代理（sing-box）
+
+Android 版本内置了 sing-box 核心（libbox），可以在不安装其它代理客户端、也不需要 VPN
+权限的情况下让 App 自身流量走 sing-box：
+
+1. 打开「设置 → 高级 → 代理」；
+2. 代理类型选择 **sing-box**；
+3. 两种方式二选一：
+   - **订阅**：填入订阅链接（机场订阅、Base64 链接列表、或 vless/vmess/ss/trojan/hysteria2 分享链接），点「导入订阅」；
+     订阅会在应用启动时按 6 小时间隔自动更新；
+   - **手动配置**：直接粘贴一份 sing-box config JSON（会使用其中的 `outbounds`）；
+4. 确认即可。
+
+启动时 App 会把配置改写成「本地 mixed 入站」形式（`127.0.0.1` 上的 HTTP + SOCKS5），
+接口请求、图片和内嵌网页都会经过该核心；关闭或选择其它代理类型时核心会停止。
+
+已知限制：目前只代理 App 自身流量（不接管整机流量）；不支持配置中的 `tun` 入站、
+按进程匹配的路由规则；iOS 暂不支持。
+
+内嵌核心是 Go 编写的 sing-box，通过 gomobile 构建为 `libbox.aar`（体积较大，不纳入版本控制），
+构建前需要先执行：
+
+```bash
+ANDROID_HOME=/path/to/android-sdk ANDROID_NDK_HOME=/path/to/ndk ./scripts/build-libbox.sh
+```
+
+详见 [docs/plans/codex/codex-singbox-proxy-plan.md](docs/plans/codex/codex-singbox-proxy-plan.md)。
 
 ## 构建须知
 

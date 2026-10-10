@@ -4,13 +4,14 @@ import androidx.compose.runtime.MutableIntState
 import io.github.v2compose.PlatformCapabilities
 import androidx.lifecycle.viewModelScope
 import io.github.v2compose.datasource.AppPreferences
+import io.github.v2compose.network.SingBoxProxyController
 import io.github.v2compose.network.bean.Release
 import io.github.v2compose.repository.AccountRepository
-import io.github.v2compose.shared.bean.ProxyInfo
 import io.github.v2compose.ui.BaseViewModel
 import io.github.v2compose.usecase.CheckForUpdatesUseCase
 import io.github.v2compose.usecase.CheckInUseCase
 import io.github.v2compose.usecase.LoadNodesUseCase
+import io.github.v2compose.usecase.RefreshSingBoxSubscriptionUseCase
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
@@ -31,6 +32,8 @@ class MainViewModel(
     private val platformCapabilities: PlatformCapabilities,
     private val autoCheckInScheduler: AutoCheckInScheduler,
     private val webViewProxyController: WebViewProxyController,
+    private val singBoxProxyController: SingBoxProxyController,
+    private val refreshSingBoxSubscription: RefreshSingBoxSubscriptionUseCase,
     val loadNodes: LoadNodesUseCase,
 ) : BaseViewModel() {
 
@@ -51,7 +54,15 @@ class MainViewModel(
         autoCheckForUpdates()
         listenCanCheckIn()
         listenAutoCheckIn()
-        initWebViewProxy()
+        initProxy()
+        autoRefreshSingBoxSubscription()
+    }
+
+    /** 订阅过期时（默认 6 小时）自动更新一次 */
+    private fun autoRefreshSingBoxSubscription() {
+        viewModelScope.launch {
+            refreshSingBoxSubscription.refreshIfNeeded()
+        }
     }
 
     private fun autoCheckForUpdates() {
@@ -104,13 +115,20 @@ class MainViewModel(
         }
     }
 
-    private fun initWebViewProxy() {
+    private fun initProxy() {
+        // 代理配置变化时同步内嵌 sing-box 核心的启停
         viewModelScope.launch {
             appPreferences.proxyInfo.collectLatest { proxyInfo ->
-                if (proxyInfo != ProxyInfo.Default) {
+                singBoxProxyController.apply(proxyInfo)
+            }
+        }
+        // 内嵌核心启动/停止后端口才可用，因此同时观察核心状态再更新 WebView 代理
+        viewModelScope.launch {
+            appPreferences.proxyInfo
+                .combine(singBoxProxyController.state) { proxyInfo, _ -> proxyInfo }
+                .collectLatest { proxyInfo ->
                     webViewProxyController.updateWebViewProxy(proxyInfo)
                 }
-            }
         }
     }
 

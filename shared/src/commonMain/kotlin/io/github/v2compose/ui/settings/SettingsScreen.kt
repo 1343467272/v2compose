@@ -41,6 +41,7 @@ import io.github.v2compose.network.bean.Release
 import io.github.v2compose.shared.bean.AppSettings
 import io.github.v2compose.shared.bean.DarkMode
 import io.github.v2compose.shared.bean.ProxyInfo
+import io.github.v2compose.network.SingBoxState
 import io.github.v2compose.shared.bean.ProxyType
 import io.github.v2compose.ui.common.BackIcon
 import io.github.v2compose.ui.common.ListDivider
@@ -51,6 +52,7 @@ import io.github.v2compose.ui.settings.composables.SelectProxyDialog
 import io.github.v2compose.ui.settings.composables.checkAndRequestNotificationPermission
 import io.github.v2compose.ui.settings.composables.titleRes
 import kotlinx.coroutines.launch
+import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 import v2compose.shared.generated.resources.Res
@@ -81,6 +83,12 @@ import v2compose.shared.generated.resources.settings_open_source
 import v2compose.shared.generated.resources.settings_other
 import v2compose.shared.generated.resources.settings_proxy
 import v2compose.shared.generated.resources.settings_proxy_ios_notice
+import v2compose.shared.generated.resources.settings_singbox_status_invalid_config
+import v2compose.shared.generated.resources.settings_singbox_status_running
+import v2compose.shared.generated.resources.settings_singbox_status_start_failed
+import v2compose.shared.generated.resources.settings_singbox_status_starting
+import v2compose.shared.generated.resources.settings_singbox_status_stopped
+import v2compose.shared.generated.resources.settings_singbox_status_unsupported
 import v2compose.shared.generated.resources.settings_reply_with_floor
 import v2compose.shared.generated.resources.settings_reply_with_floor_description
 import v2compose.shared.generated.resources.settings_topic_title_overview
@@ -107,6 +115,8 @@ fun SettingsScreenRoute(
     val cacheSize by viewModel.cacheSize.collectAsStateWithLifecycle()
     val appSettings by viewModel.appSettings.collectAsStateWithLifecycle()
     val proxyInfo by viewModel.proxyInfo.collectAsStateWithLifecycle()
+    val singBoxState by viewModel.singBoxState.collectAsStateWithLifecycle()
+    val singBoxImportState by viewModel.singBoxImportState.collectAsStateWithLifecycle()
     val isLoggedIn by viewModel.isLoggedIn.collectAsStateWithLifecycle()
 
     if (newRelease.isValid()) {
@@ -124,6 +134,9 @@ fun SettingsScreenRoute(
         cacheSize = cacheSize,
         appSettings = appSettings,
         proxyInfo = proxyInfo,
+        singBoxState = singBoxState,
+        singBoxImportState = singBoxImportState,
+        onImportSingBoxSubscription = viewModel::importSingBoxSubscription,
         onBackClick = onBackClick,
         onClearCacheClick = viewModel::clearCache,
         onAutoCheckInChanged = viewModel::updateAutoCheckIn,
@@ -157,6 +170,9 @@ private fun SettingsScreen(
     cacheSize: Long,
     appSettings: AppSettings,
     proxyInfo: ProxyInfo,
+    singBoxState: SingBoxState,
+    singBoxImportState: SingBoxImportState,
+    onImportSingBoxSubscription: (String) -> Unit,
     onBackClick: () -> Unit,
     onClearCacheClick: () -> Unit,
     onAutoCheckInChanged: (Boolean) -> Unit,
@@ -219,6 +235,9 @@ private fun SettingsScreen(
             ProxyPreference(
                 title = stringResource(Res.string.settings_proxy),
                 proxyInfo = proxyInfo,
+                singBoxState = singBoxState,
+                singBoxImportState = singBoxImportState,
+                onImportSingBoxSubscription = onImportSingBoxSubscription,
                 onProxyChanged = onProxyChanged
             )
             PreferenceGroupTitle(title = stringResource(Res.string.settings_other))
@@ -481,7 +500,12 @@ private fun DropdownPreference(
 
 @Composable
 private fun ProxyPreference(
-    title: String, proxyInfo: ProxyInfo, onProxyChanged: (ProxyInfo) -> Unit
+    title: String,
+    proxyInfo: ProxyInfo,
+    singBoxState: SingBoxState,
+    singBoxImportState: SingBoxImportState,
+    onImportSingBoxSubscription: (String) -> Unit,
+    onProxyChanged: (ProxyInfo) -> Unit
 ) {
     val platformHandlers = LocalAppPlatformHandlers.current
     var showSelectProxyDialog by remember { mutableStateOf(false) }
@@ -489,11 +513,20 @@ private fun ProxyPreference(
 
     val typeText = stringResource(currentProxy.type.titleRes)
     val iosProxyNotice = stringResource(Res.string.settings_proxy_ios_notice)
-    val summary = remember(proxyInfo, typeText, iosProxyNotice, platformHandlers.capabilities) {
-        val addressText =
-            if (proxyInfo.type == ProxyType.Http || proxyInfo.type == ProxyType.Socks) {
-                proxyInfo.address + ":" + proxyInfo.port
-            } else ""
+    val singBoxStatusText = stringResource(singBoxState.statusRes)
+    val summary = remember(
+        proxyInfo, singBoxState, typeText, singBoxStatusText, iosProxyNotice,
+        platformHandlers.capabilities
+    ) {
+        val addressText = when (proxyInfo.type) {
+            ProxyType.Http, ProxyType.Socks -> proxyInfo.address + ":" + proxyInfo.port
+            ProxyType.SingBox -> {
+                val port = (singBoxState as? SingBoxState.Running)?.port
+                if (port != null) "127.0.0.1:$port · $singBoxStatusText" else singBoxStatusText
+            }
+
+            else -> ""
+        }
         val baseSummary = "$typeText $addressText".trim()
         if (platformHandlers.capabilities == PlatformCapabilities.Ios) {
             "$baseSummary\n$iosProxyNotice".trim()
@@ -509,6 +542,8 @@ private fun ProxyPreference(
     if (showSelectProxyDialog) {
         SelectProxyDialog(
             proxyInfo = currentProxy,
+            importState = singBoxImportState,
+            onImportSubscription = onImportSingBoxSubscription,
             onDismiss = { showSelectProxyDialog = false },
             onProxySelected = {
                 showSelectProxyDialog = false
@@ -519,3 +554,13 @@ private fun ProxyPreference(
     }
 
 }
+
+private val SingBoxState.statusRes: StringResource
+    get() = when (this) {
+        SingBoxState.Stopped -> Res.string.settings_singbox_status_stopped
+        SingBoxState.Starting -> Res.string.settings_singbox_status_starting
+        is SingBoxState.Running -> Res.string.settings_singbox_status_running
+        is SingBoxState.InvalidConfig -> Res.string.settings_singbox_status_invalid_config
+        is SingBoxState.StartFailed -> Res.string.settings_singbox_status_start_failed
+        SingBoxState.Unsupported -> Res.string.settings_singbox_status_unsupported
+    }

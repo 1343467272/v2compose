@@ -100,6 +100,8 @@ private fun createIosHttpClientEngine(
 private fun ProxyInfo.toProxyConfig() = when (type) {
     ProxyType.System,
     ProxyType.Direct,
+    // iOS 暂不支持内嵌 sing-box 核心（需要 NetworkExtension），按直连处理
+    ProxyType.SingBox,
     -> null
 
     ProxyType.Http -> ProxyBuilder.http(Url("http://$address:$port"))

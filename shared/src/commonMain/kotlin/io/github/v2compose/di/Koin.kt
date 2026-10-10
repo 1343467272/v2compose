@@ -8,8 +8,10 @@ import io.github.v2compose.datasource.AppPreferences
 import io.github.v2compose.datasource.AppStateStore
 import io.github.v2compose.datasource.MyFollowingPagingSource
 import io.github.v2compose.datasource.MyTopicsPagingSource
+import io.github.v2compose.network.DefaultSingBoxSubscriptionFetcher
 import io.github.v2compose.network.GithubApi
 import io.github.v2compose.network.KtorGithubApi
+import io.github.v2compose.network.SingBoxSubscriptionFetcher
 import io.github.v2compose.network.V2exApi
 import io.github.v2compose.repository.AccountRepository
 import io.github.v2compose.repository.AppRepository
@@ -51,6 +53,7 @@ import io.github.v2compose.usecase.CheckInUseCase
 import io.github.v2compose.usecase.DefaultExternalImageUrlResolver
 import io.github.v2compose.usecase.ExternalImageUrlResolver
 import io.github.v2compose.usecase.LoadNodesUseCase
+import io.github.v2compose.usecase.RefreshSingBoxSubscriptionUseCase
 import io.github.v2compose.usecase.UpdateAccountUseCase
 import org.koin.core.context.startKoin
 import org.koin.core.module.Module
@@ -71,6 +74,7 @@ val sharedCoreModule = module {
 val sharedNetworkModule = module {
     singleOf(::V2exApi)
     single<GithubApi> { KtorGithubApi(get()) }
+    single<SingBoxSubscriptionFetcher> { DefaultSingBoxSubscriptionFetcher(get()) }
 }
 
 val sharedDataModule = module {
@@ -91,6 +95,7 @@ val sharedUseCaseModule = module {
     singleOf(::UpdateAccountUseCase)
     singleOf(::CheckInUseCase)
     singleOf(::LoadNodesUseCase)
+    singleOf(::RefreshSingBoxSubscriptionUseCase)
     single<ExternalImageUrlResolver> { DefaultExternalImageUrlResolver(get()) }
 }
 
