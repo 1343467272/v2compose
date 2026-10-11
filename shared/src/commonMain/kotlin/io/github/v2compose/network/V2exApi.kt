@@ -28,6 +28,7 @@ import io.github.v2compose.network.bean.UserReplies
 import io.github.v2compose.network.bean.UserTopics
 import io.github.v2compose.network.bean.V2exResult
 import io.github.v2compose.shared.bean.TopicNode
+import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.forms.submitForm
 import io.ktor.client.request.get
@@ -41,9 +42,20 @@ import io.ktor.http.parameters
 /**
  * Multiplatform V2ex Network API using Ktor
  */
-class V2exApi(private val clientProvider: NetworkClientProvider) {
+class V2exApi(
+    private val clientProvider: NetworkClientProvider,
+    /**
+     * 不走 App 代理的直连客户端工厂，用于搜索接口的直连兜底（见 [searchWithDirectFallback]）。
+     * 延迟创建：只有代理链路失败时才会真正建连，正常搜索没有额外开销。
+     */
+    private val directClientFactory: () -> HttpClient = {
+        createV2HttpClient(engine = createHttpClientEngine())
+    },
+) {
     private val client
         get() = clientProvider.v2HttpClient()
+
+    private val directClient: HttpClient by lazy { directClientFactory() }
 
     suspend fun nodeInfo(name: String): NodeInfo =
         client.get("/api/nodes/show.json") { parameter("name", name) }.body()
@@ -63,7 +75,10 @@ class V2exApi(private val clientProvider: NetworkClientProvider) {
         client.get("/api/members/show.json") { parameter("username", username) }.body()
 
     suspend fun search(keyword: String, from: Int, size: Int): SoV2EXSearchResultInfo =
-        client.getFollowingRedirects(buildSov2exSearchUrl(keyword, from, size)).body()
+        client.searchWithDirectFallback(
+            directClientProvider = { directClient },
+            url = buildSov2exSearchUrl(keyword, from, size),
+        ).body()
 
     // Below is html API
     suspend fun homeNews(tab: String): NewsInfo =

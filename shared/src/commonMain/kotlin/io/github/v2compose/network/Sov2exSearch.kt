@@ -1,6 +1,7 @@
 package io.github.v2compose.network
 
 import io.github.v2compose.core.extension.isRedirect
+import io.github.v2compose.util.KLogger
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.expectSuccess
 import io.ktor.client.plugins.timeout
@@ -11,6 +12,7 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.URLBuilder
 import io.ktor.http.isSuccess
 import io.ktor.http.takeFrom
+import kotlinx.coroutines.CancellationException
 
 /**
  * sov2ex 搜索接口（第三方服务，非 V2EX 自身域名）。
@@ -26,6 +28,8 @@ internal const val SOV2EX_SEARCH_TIMEOUT_MS = 15_000L
 
 /** 搜索接口最多跟随的重定向次数。 */
 internal const val SOV2EX_MAX_REDIRECTS = 3
+
+private const val TAG = "Sov2exSearch"
 
 /**
  * 搜索服务返回异常状态码或重定向异常时抛出。
@@ -86,5 +90,33 @@ internal suspend fun HttpClient.getFollowingRedirects(
             throw Sov2exSearchException("搜索服务返回 HTTP " + response.status.value + suffix)
         }
         return response
+    }
+}
+/**
+ * 先走当前配置的客户端（可能带代理），链路类失败后再直连重试一次。
+ *
+ * 背景：App 允许把自身流量全部交给内嵌 sing-box（127.0.0.1:20800），但实测部分节点的出站
+ * 无法访问国内可直连的 `www.sov2ex.com`，握手阶段会以 TLS `connection closed` 失败；
+ * 此时直连可以正常拿到结果。为避免“一开代理就搜不到”，在链路类失败时用直连客户端兜底。
+ *
+ * 服务端已经响应（[Sov2exSearchException]，例如 4xx/5xx、重定向次数超限）属于业务失败，
+ * 不做直连重试，避免把同一个请求重复打给搜索服务。
+ *
+ * [directClientProvider] 只在需要兜底时才调用，正常情况下不会创建直连客户端。
+ */
+internal suspend fun HttpClient.searchWithDirectFallback(
+    directClientProvider: () -> HttpClient,
+    url: String,
+    timeoutMillis: Long = SOV2EX_SEARCH_TIMEOUT_MS,
+): HttpResponse {
+    return try {
+        getFollowingRedirects(url, timeoutMillis)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Sov2exSearchException) {
+        throw e
+    } catch (e: Exception) {
+        KLogger.d(TAG, "proxied search failed (" + e.message + "), retrying directly: " + url)
+        directClientProvider().getFollowingRedirects(url, timeoutMillis)
     }
 }

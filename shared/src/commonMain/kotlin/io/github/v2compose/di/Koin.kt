@@ -72,7 +72,8 @@ val sharedCoreModule = module {
 }
 
 val sharedNetworkModule = module {
-    singleOf(::V2exApi)
+    // 默认参数是一个不解析 Koin 的直连客户端工厂，因此显式构造而不能用 singleOf(::V2exApi)。
+    single { V2exApi(get()) }
     single<GithubApi> { KtorGithubApi(get()) }
     single<SingBoxSubscriptionFetcher> { DefaultSingBoxSubscriptionFetcher(get()) }
 }

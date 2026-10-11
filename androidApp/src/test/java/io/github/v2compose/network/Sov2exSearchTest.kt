@@ -11,6 +11,7 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import kotlinx.coroutines.runBlocking
+import java.net.SocketTimeoutException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
@@ -21,7 +22,8 @@ import org.junit.Test
  *
  * 背景：V2 客户端为了把 V2EX 的业务 302 暴露给上层而关闭了自动重定向跟随（followRedirects = false），
  * 但搜索请求打到的是 www.sov2ex.com，一旦该域名返回 3xx，搜索就会直接失败。
- * 这里覆盖：参数拼接、相对/绝对重定向跟随、重定向次数上限、非 2xx 的可读错误。
+ * 这里覆盖：参数拼接、相对/绝对重定向跟随、重定向次数上限、非 2xx 的可读错误，
+ * 以及「代理链路不通时自动直连兜底」的行为。
  */
 class Sov2exSearchTest {
 
@@ -161,6 +163,83 @@ class Sov2exSearchTest {
             assertTrue(message, message.contains("too deep paging"))
         } finally {
             client.close()
+        }
+    }
+
+
+    @Test
+    fun searchFallsBackToDirectWhenProxiedAttemptFails() = runBlocking {
+        // 模拟内嵌 sing-box 节点访问 www.sov2ex.com 时握手被重置（connection closed）。
+        val proxiedClient = createV2HttpClient(
+            engine = MockEngine { throw SocketTimeoutException("connection closed") },
+        )
+        val directRequests = mutableListOf<String>()
+        val directClient = createV2HttpClient(
+            engine = MockEngine { request ->
+                directRequests += request.url.toString()
+                respondJson(HITS_JSON)
+            },
+        )
+        val api = V2exApi(FakeNetworkClientProvider(proxiedClient)) { directClient }
+
+        try {
+            val result = api.search("流量卡", 0, 10)
+
+            assertEquals(2, result.total)
+            assertEquals(1, directRequests.size)
+            assertTrue(directRequests.single(), directRequests.single().contains("from=0"))
+        } finally {
+            proxiedClient.close()
+            directClient.close()
+        }
+    }
+
+    @Test
+    fun searchDoesNotFallBackWhenServerAlreadyResponded() = runBlocking {
+        val proxiedClient = createV2HttpClient(
+            engine = MockEngine {
+                respond(
+                    """{"message":"too deep paging"}""",
+                    HttpStatusCode.BadRequest,
+                    headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
+                )
+            },
+        )
+        var directCalls = 0
+        val directClient = createV2HttpClient(
+            engine = MockEngine {
+                directCalls++
+                respondJson(HITS_JSON)
+            },
+        )
+        val api = V2exApi(FakeNetworkClientProvider(proxiedClient)) { directClient }
+
+        try {
+            api.search("流量卡", 1000, 10)
+            fail("expected a readable search failure")
+        } catch (e: Exception) {
+            assertEquals("Sov2exSearchException", e::class.java.simpleName)
+        } finally {
+            proxiedClient.close()
+            directClient.close()
+        }
+        assertEquals("服务端已响应时不应直连重试", 0, directCalls)
+    }
+
+    @Test
+    fun directClientIsNotCreatedWhenProxiedSearchSucceeds() = runBlocking {
+        var factoryCalls = 0
+        val proxiedClient = createV2HttpClient(engine = MockEngine { respondJson(HITS_JSON) })
+        val api = V2exApi(FakeNetworkClientProvider(proxiedClient)) {
+            factoryCalls++
+            createV2HttpClient(engine = MockEngine { respondJson(HITS_JSON) })
+        }
+
+        try {
+            api.search("流量卡", 0, 10)
+            assertEquals("代理可用时不应创建直连客户端", 0, factoryCalls)
+        } finally {
+            proxiedClient.close()
         }
     }
 
