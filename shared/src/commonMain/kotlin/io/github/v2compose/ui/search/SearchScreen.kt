@@ -59,6 +59,7 @@ import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
 import io.github.v2compose.core.extension.toTimeText
 import io.github.v2compose.network.bean.SoV2EXSearchResultInfo
+import io.github.v2compose.ui.common.PagingLoadState
 import io.github.v2compose.ui.common.pagingAppendMoreItem
 import io.github.v2compose.ui.common.pagingRefreshItem
 import io.github.v2compose.ui.common.rememberLazyListState
@@ -68,7 +69,44 @@ import org.koin.compose.viewmodel.koinViewModel
 import v2compose.shared.generated.resources.Res
 import v2compose.shared.generated.resources.history_keywords
 import v2compose.shared.generated.resources.logo_sov2ex
+import v2compose.shared.generated.resources.search_no_results
 import v2compose.shared.generated.resources.search_user_time_replies
+
+/** 搜索结果页当前应展示的内容。 */
+enum class SearchContentState {
+    /** 尚未发起搜索，展示历史搜索词。 */
+    History,
+
+    /** 首屏结果加载中。 */
+    Loading,
+
+    /** 首屏加载失败，需要展示错误信息与重试入口。 */
+    Error,
+
+    /** 请求成功但没有匹配结果。 */
+    Empty,
+
+    /** 展示搜索结果列表。 */
+    Results,
+}
+
+/**
+ * 根据关键词与首屏加载状态推导页面内容。
+ *
+ * 抽成纯函数是为了让"加载中 / 加载失败 / 无结果"这三种状态可以被单测覆盖：
+ * 此前它们都会被静默当成"空列表"而回退到历史搜索词，用户看到的结果就是搜索没有任何反馈。
+ */
+fun searchContentState(
+    keyword: String?,
+    refresh: LoadState,
+    itemCount: Int,
+): SearchContentState = when {
+    keyword.isNullOrEmpty() -> SearchContentState.History
+    itemCount > 0 -> SearchContentState.Results
+    refresh is LoadState.Loading -> SearchContentState.Loading
+    refresh is LoadState.Error -> SearchContentState.Error
+    else -> SearchContentState.Empty
+}
 
 @Composable
 fun SearchScreenRoute(
@@ -110,17 +148,32 @@ private fun SearchScreen(
                 .background(color = backgroundColor)
                 .padding(it),
         ) {
-            if (topics.itemSnapshotList.isEmpty()) {
-                SearchHistoryKeywords(
+            val refreshState = topics.loadState.refresh
+            when (searchContentState(keyword, refreshState, topics.itemCount)) {
+                SearchContentState.History -> SearchHistoryKeywords(
                     searchKeywords = historyKeywords,
                     onKeywordClick = onSearchClick,
                     onDeleteKeywordsClick = onDeleteKeywordsClick,
                     modifier = Modifier.padding(top = 72.dp),
                 )
-            } else {
-                SearchResult(
+
+                SearchContentState.Results -> SearchResult(
                     topics = topics,
                     onTopicClick = onTopicClick,
+                )
+
+                // 首屏加载中/失败时也要给出反馈：此前这两种状态都会静默回退到历史记录，
+                // 用户看到的就是"搜索不出结果"，且失败后无法重试。
+                SearchContentState.Loading,
+                SearchContentState.Error,
+                -> PagingLoadState(
+                    state = refreshState,
+                    onRetryClick = { topics.retry() },
+                    modifier = Modifier.padding(top = 72.dp),
+                )
+
+                SearchContentState.Empty -> SearchEmptyState(
+                    modifier = Modifier.padding(top = 72.dp),
                 )
             }
             SearchBar(
@@ -129,6 +182,22 @@ private fun SearchScreen(
                 onSearchClick = onSearchClick,
             )
         }
+    }
+}
+
+@Composable
+private fun SearchEmptyState(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 24.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = stringResource(Res.string.search_no_results),
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+            style = MaterialTheme.typography.bodyMedium,
+        )
     }
 }
 

@@ -63,11 +63,7 @@ class V2exApi(private val clientProvider: NetworkClientProvider) {
         client.get("/api/members/show.json") { parameter("username", username) }.body()
 
     suspend fun search(keyword: String, from: Int, size: Int): SoV2EXSearchResultInfo =
-        client.get("https://www.sov2ex.com/api/search") {
-            parameter("q", keyword)
-            parameter("from", from)
-            parameter("size", size)
-        }.body()
+        client.getFollowingRedirects(buildSov2exSearchUrl(keyword, from, size)).body()
 
     // Below is html API
     suspend fun homeNews(tab: String): NewsInfo =

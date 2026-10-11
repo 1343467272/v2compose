@@ -12,6 +12,7 @@ import io.github.v2compose.util.KLogger
 import io.ktor.client.HttpClient
 import io.ktor.client.HttpClientConfig
 import io.ktor.client.engine.HttpClientEngine
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.defaultRequest
 import io.ktor.client.plugins.DefaultRequest
@@ -105,6 +106,10 @@ private fun createConfiguredHttpClient(
     // 否则 302 会被跟随到目标 HTML 页面，ContentNegotiation 再用 Fruit 解析 V2exResult 时
     // 抛出 "Fruit cannot handle class ...V2exResult. No factory found."。
     this.followRedirects = followRedirects
+
+    // 安装超时插件：具体超时由各请求通过 timeout { } 指定（如搜索结果请求），
+    // 避免弱网或服务无响应时请求无限挂起（iOS Darwin 引擎默认请求超时长达 60s）。
+    install(HttpTimeout)
 
     installContentNegotiation?.invoke(this)
 

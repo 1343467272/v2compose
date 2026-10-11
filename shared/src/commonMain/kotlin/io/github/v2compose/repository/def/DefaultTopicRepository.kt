@@ -70,7 +70,11 @@ class DefaultTopicRepository(
         get() = appPreferences.appSettings.map { it.replyWithFloor }
 
     override fun search(keyword: String): Flow<PagingData<SoV2EXSearchResultInfo.Hit>> {
-        return Pager(PagingConfig(pageSize = 10)) { SearchPagingSource(keyword, v2exService) }.flow
+        // sov2ex 单次请求的 size 越大响应越慢（实测同一关键词 size=30 约为 size=10 的 2 倍），
+        // 因此首屏只请求一页，后续由 Paging 预取，减少等待时间。
+        return Pager(PagingConfig(pageSize = 10, initialLoadSize = 10)) {
+            SearchPagingSource(keyword, v2exService)
+        }.flow
     }
 
     override val topicTitleOverview: Flow<Boolean>
